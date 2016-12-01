@@ -1,4 +1,4 @@
-#include "util/simple_logger.hpp"
+#include "util/log.hpp"
 #include "util/isatty.hpp"
 #include <cstdio>
 #include <iostream>
@@ -14,12 +14,12 @@ namespace
 {
 static const char COL_RESET[]{"\x1b[0m"};
 static const char RED[]{"\x1b[31m"};
-#ifndef NDEBUG
 static const char YELLOW[]{"\x1b[33m"};
+#ifndef NDEBUG
+static const char MAGENTA[]{"\x1b[35m"};
 #endif
 // static const char GREEN[] { "\x1b[32m"};
 // static const char BLUE[] { "\x1b[34m"};
-// static const char MAGENTA[] { "\x1b[35m"};
 // static const char CYAN[] { "\x1b[36m"};
 }
 
@@ -35,38 +35,38 @@ LogPolicy &LogPolicy::GetInstance()
     return runningInstance;
 }
 
-SimpleLogger::SimpleLogger() : level(logINFO) {}
+Log::Log(LogLevel level_, std::ostream &ostream) : level(level_), stream(ostream)
+{
+    const bool is_terminal = IsStdoutATTY();
+    std::lock_guard<std::mutex> lock(get_mutex());
+    switch (level)
+    {
+    case logWARNING:
+        stream << (is_terminal ? YELLOW : "") << "[warn] ";
+        break;
+    case logERROR:
+        stream << (is_terminal ? RED : "") << "[error] ";
+        break;
+    case logDEBUG:
+#ifndef NDEBUG
+        stream << (is_terminal ? MAGENTA : "") << "[debug] ";
+#endif
+        break;
+    default: // logINFO:
+        stream << "[info] ";
+        break;
+    }
+}
 
-std::mutex &SimpleLogger::get_mutex()
+Log::Log(LogLevel level_) : Log(level_, buffer) {}
+
+std::mutex &Log::get_mutex()
 {
     static std::mutex mtx;
     return mtx;
 }
 
-std::ostringstream &SimpleLogger::Write(LogLevel lvl) noexcept
-{
-    std::lock_guard<std::mutex> lock(get_mutex());
-    level = lvl;
-    os << "[";
-    switch (level)
-    {
-    case logWARNING:
-        os << "warn";
-        break;
-    case logDEBUG:
-#ifndef NDEBUG
-        os << "debug";
-#endif
-        break;
-    default: // logINFO:
-        os << "info";
-        break;
-    }
-    os << "] ";
-    return os;
-}
-
-SimpleLogger::~SimpleLogger()
+Log::~Log()
 {
     std::lock_guard<std::mutex> lock(get_mutex());
     if (!LogPolicy::GetInstance().IsMute())
@@ -75,21 +75,29 @@ SimpleLogger::~SimpleLogger()
         switch (level)
         {
         case logWARNING:
-            std::cerr << (is_terminal ? RED : "") << os.str() << (is_terminal ? COL_RESET : "")
-                      << std::endl;
+        case logERROR:
+            std::cerr << buffer.str();
+            std::cerr << (is_terminal ? COL_RESET : "");
+            std::cerr << std::endl;
             break;
         case logDEBUG:
-#ifndef NDEBUG
-            std::cout << (is_terminal ? YELLOW : "") << os.str() << (is_terminal ? COL_RESET : "")
-                      << std::endl;
-#endif
+#ifdef NDEBUG
             break;
+#endif
         case logINFO:
         default:
-            std::cout << os.str() << (is_terminal ? COL_RESET : "") << std::endl;
+            std::cout << buffer.str();
+            std::cout << (is_terminal ? COL_RESET : "");
+            std::cout << std::endl;
             break;
         }
     }
+}
+
+UnbufferedLog::UnbufferedLog(LogLevel level_)
+    : Log(level_, (level_ == logWARNING || level_ == logERROR) ? std::cerr : std::cout)
+{
+    stream.flags(std::ios_base::unitbuf);
 }
 }
 }
