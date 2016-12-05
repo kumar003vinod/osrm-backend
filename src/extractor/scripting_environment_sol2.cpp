@@ -1,3 +1,4 @@
+#define SOL_CHECK_ARGUMENTS
 #include "extractor/scripting_environment_sol2.hpp"
 
 #include "extractor/external_memory_node.hpp"
@@ -275,7 +276,11 @@ void Sol2ScriptingEnvironment::InitContext(Sol2ScriptingContext &context)
                                                    &latToDouble<ExternalMemoryNode>);
 
     context.state.new_usertype<util::Coordinate>(
-        "Coordinate", "lon", &lonToDouble<util::Coordinate>, "lat", &latToDouble<util::Coordinate>);
+        "Coordinate",
+        "lon",
+        sol::property(&lonToDouble<util::Coordinate>),
+        "lat",
+        sol::property(&latToDouble<util::Coordinate>));
 
     context.state.new_usertype<RasterDatum>(
         "RasterDatum", "datum", &RasterDatum::datum, "invalid_data", &RasterDatum::get_invalid);
