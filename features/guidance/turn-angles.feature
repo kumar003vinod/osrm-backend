@@ -1168,3 +1168,40 @@ Feature: Simple Turns
         When I route I should get
             | waypoints | route        |
             | a,e       | ab,bcde,bcde |
+
+
+    @3401
+    Scenario: Curve With Duplicated Coordinates
+        Given the node locations
+            | node | lat                | lon                | #          |
+            | a    | 0.9999280745650984 | 1.0                |            |
+            | b    | 0.9999280745650984 | 1.0000179813587253 |            |
+            | c    | 0.9999280745650984 | 1.0000359627174509 |            |
+            | d    | 0.9999460559238238 | 1.0000674300952204 |            |
+            | e    | 0.9999640372825492 | 1.0000809161142643 |            |
+            | f    | 0.9999820186412746 | 1.0000854114539457 |            |
+            | g    | 1.0                | 1.0000854114539457 |            |
+            | h    | 1.0                | 1.0000854114539457 | #same as g |
+            | z    | 0.9999100932063729 | 1.0000179813587253 |            |
+           #                   g
+           #                   |
+           #                   f
+           #                   '
+           #                  e
+           #                 '
+           #               d
+           #           '
+           #a - b - c
+           #    |
+           #    z
+
+        And the ways
+            | nodes   | oneway | lanes | #                        |
+            | ab      | yes    | 1     |                          |
+            | zb      | yes    | 1     |                          |
+            | bcdefgh | yes    | 1     | #intentional duplication |
+
+        # we don't care for turn instructions, this is a coordinate extraction bug check
+        When I route I should get
+            | waypoints | route              | intersections                                |
+            | a,g       | ab,bcdefgh,bcdefgh | true:90;true:45 false:180 false:270;true:180 |

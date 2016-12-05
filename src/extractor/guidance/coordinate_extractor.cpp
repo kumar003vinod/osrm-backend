@@ -353,7 +353,7 @@ util::Coordinate CoordinateExtractor::ExtractRepresentativeCoordinate(
          * destination lanes and the ones that performa a larger turn.
          */
         const double offset =
-            std::min(0.5 * considered_lanes * ASSUMED_LANE_WIDTH, 0.2 * segment_distances.back());
+            std::min(0.5 * considered_lanes * ASSUMED_LANE_WIDTH, 0.2 * total_distance);
         coordinates = TrimCoordinatesToLength(std::move(coordinates), offset, segment_distances);
         BOOST_ASSERT(coordinates.size() >= 2);
         segment_distances.resize(coordinates.size());
@@ -600,6 +600,9 @@ CoordinateExtractor::GetCoordinatesAlongRoad(const NodeID intersection_node,
                            std::back_inserter(result),
                            compressedGeometryToCoordinate);
         }
+        // filter duplicated coordinates
+        auto end = std::unique(result.begin(), result.end());
+        result.erase(end, result.end());
         return result;
     }
 }
@@ -693,12 +696,12 @@ bool CoordinateExtractor::IsCurve(const std::vector<util::Coordinate> &coordinat
     std::tie(has_up_down_deviation, maximum_deviation_index, maximum_deviation) =
         [&coordinates, get_deviation]() -> std::tuple<bool, std::size_t, double> {
         const auto increasing = [&](const util::Coordinate lhs, const util::Coordinate rhs) {
-            return get_deviation(coordinates.front(), coordinates.back(), lhs) <=
+            return get_deviation(coordinates.front(), coordinates.back(), lhs) <
                    get_deviation(coordinates.front(), coordinates.back(), rhs);
         };
 
         const auto decreasing = [&](const util::Coordinate lhs, const util::Coordinate rhs) {
-            return get_deviation(coordinates.front(), coordinates.back(), lhs) >=
+            return get_deviation(coordinates.front(), coordinates.back(), lhs) >
                    get_deviation(coordinates.front(), coordinates.back(), rhs);
         };
 
@@ -709,16 +712,17 @@ bool CoordinateExtractor::IsCurve(const std::vector<util::Coordinate> &coordinat
             return std::make_tuple(
                 true, 1, get_deviation(coordinates.front(), coordinates.back(), coordinates[1]));
 
-        const auto maximum_itr =
+        const auto one_past_maximum_itr =
             std::is_sorted_until(coordinates.begin() + 1, coordinates.end(), increasing);
 
-        if (maximum_itr == coordinates.end())
+        if (one_past_maximum_itr == coordinates.end())
             return std::make_tuple(true, coordinates.size() - 1, 0.);
-        else if (std::is_sorted(maximum_itr, coordinates.end(), decreasing))
-            return std::make_tuple(
-                true,
-                std::distance(coordinates.begin(), maximum_itr),
-                get_deviation(coordinates.front(), coordinates.back(), *maximum_itr));
+        else if (std::is_sorted(one_past_maximum_itr, coordinates.end(), decreasing))
+            return std::make_tuple(true,
+                                   std::distance(coordinates.begin(), one_past_maximum_itr - 1),
+                                   get_deviation(coordinates.front(),
+                                                 coordinates.back(),
+                                                 *(one_past_maximum_itr - 1)));
         else
             return std::make_tuple(false, 0, 0.);
     }();
@@ -731,7 +735,7 @@ bool CoordinateExtractor::IsCurve(const std::vector<util::Coordinate> &coordinat
     // if the maximum deviation is at a quarter of the total curve, we are probably looking at a
     // normal turn
     const auto distance_to_max_deviation = std::accumulate(
-        segment_distances.begin(), segment_distances.begin() + maximum_deviation_index, 0.);
+        segment_distances.begin(), segment_distances.begin() + maximum_deviation_index + 1, 0.);
 
     if ((distance_to_max_deviation <= 0.35 * segment_length ||
          maximum_deviation < std::max(0.3 * considered_lane_width, 0.5 * ASSUMED_LANE_WIDTH)) &&
@@ -802,9 +806,8 @@ bool CoordinateExtractor::IsCurve(const std::vector<util::Coordinate> &coordinat
                 std::adjacent_find(turn_angles.begin(), turn_angles.end(), detect_invalid_curve);
 
             // No curve should have a very long straight segment
-            return end_of_straight_segment == turn_angles.end();
+            return end_of_straight_segment != turn_angles.end();
         }();
-
     return (segment_length > 2 * considered_lane_width && curve_is_valid);
 }
 
