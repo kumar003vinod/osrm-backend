@@ -337,38 +337,6 @@ util::Coordinate CoordinateExtractor::ExtractRepresentativeCoordinate(
         return result;
     }
 
-    if (IsCurve(coordinates,
-                segment_distances,
-                total_distance,
-                considered_lanes * 0.5 * ASSUMED_LANE_WIDTH,
-                turn_edge_data))
-    {
-        if (total_distance <= distance_to_skip_over_due_to_coordinate_inaccuracies)
-            return coordinates.back();
-        /*
-         * In curves we now have to distinguish between larger curves and tiny curves modelling the
-         * actual turn in the beginnig.
-         *
-         * We distinguish between turns that simply model the initial way of getting onto the
-         * destination lanes and the ones that performa a larger turn.
-         */
-        const double offset =
-            std::min(0.5 * considered_lanes * ASSUMED_LANE_WIDTH, 0.2 * total_distance);
-        coordinates = TrimCoordinatesToLength(std::move(coordinates), offset, segment_distances);
-        BOOST_ASSERT(coordinates.size() >= 2);
-        segment_distances.resize(coordinates.size());
-        segment_distances.back() = util::coordinate_calculation::haversineDistance(
-            *(coordinates.end() - 2), coordinates.back());
-        const auto vector_head = coordinates.back();
-        coordinates =
-            TrimCoordinatesToLength(std::move(coordinates), 0.5 * offset, segment_distances);
-        BOOST_ASSERT(coordinates.size() >= 2);
-        const auto result =
-            GetCorrectedCoordinate(turn_coordinate, coordinates.back(), vector_head);
-        BOOST_ASSERT(is_valid_result(result));
-        return result;
-    }
-
     if (IsDirectOffset(coordinates,
                        straight_index,
                        straight_distance,
@@ -386,6 +354,41 @@ util::Coordinate CoordinateExtractor::ExtractRepresentativeCoordinate(
         BOOST_ASSERT(is_valid_result(result));
         return result;
     }
+
+    if (IsCurve(coordinates,
+                segment_distances,
+                total_distance,
+                considered_lanes * 0.5 * ASSUMED_LANE_WIDTH,
+                turn_edge_data))
+    {
+        if (total_distance <= distance_to_skip_over_due_to_coordinate_inaccuracies)
+            return coordinates.back();
+        /*
+         * In curves we now have to distinguish between larger curves and tiny curves modelling the
+         * actual turn in the beginnig.
+         *
+         * We distinguish between turns that simply model the initial way of getting onto the
+         * destination lanes and the ones that performa a larger turn.
+         */
+        coordinates =
+            TrimCoordinatesToLength(std::move(coordinates),
+                                    2 * distance_to_skip_over_due_to_coordinate_inaccuracies,
+                                    segment_distances);
+        BOOST_ASSERT(coordinates.size() >= 2);
+        segment_distances.resize(coordinates.size());
+        segment_distances.back() = util::coordinate_calculation::haversineDistance(
+            *(coordinates.end() - 2), coordinates.back());
+        const auto vector_head = coordinates.back();
+        coordinates = TrimCoordinatesToLength(std::move(coordinates),
+                                              distance_to_skip_over_due_to_coordinate_inaccuracies,
+                                              segment_distances);
+        BOOST_ASSERT(coordinates.size() >= 2);
+        const auto result =
+            GetCorrectedCoordinate(turn_coordinate, coordinates.back(), vector_head);
+        BOOST_ASSERT(is_valid_result(result));
+        return result;
+    }
+
 
     {
         // skip over the first coordinates, in specific the assumed lane count. We add a small
@@ -719,7 +722,7 @@ bool CoordinateExtractor::IsCurve(const std::vector<util::Coordinate> &coordinat
             return std::make_tuple(true, coordinates.size() - 1, 0.);
         else if (std::is_sorted(one_past_maximum_itr, coordinates.end(), decreasing))
             return std::make_tuple(true,
-                                   std::distance(coordinates.begin(), one_past_maximum_itr - 1),
+                                   std::distance(coordinates.begin(), one_past_maximum_itr) - 1,
                                    get_deviation(coordinates.front(),
                                                  coordinates.back(),
                                                  *(one_past_maximum_itr - 1)));
@@ -806,8 +809,9 @@ bool CoordinateExtractor::IsCurve(const std::vector<util::Coordinate> &coordinat
                 std::adjacent_find(turn_angles.begin(), turn_angles.end(), detect_invalid_curve);
 
             // No curve should have a very long straight segment
-            return end_of_straight_segment != turn_angles.end();
+            return end_of_straight_segment == turn_angles.end();
         }();
+
     return (segment_length > 2 * considered_lane_width && curve_is_valid);
 }
 
