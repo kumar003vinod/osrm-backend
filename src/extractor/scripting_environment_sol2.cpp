@@ -1,4 +1,3 @@
-#define SOL_CHECK_ARGUMENTS
 #include "extractor/scripting_environment_sol2.hpp"
 
 #include "extractor/external_memory_node.hpp"
